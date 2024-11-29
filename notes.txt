@@ -1,0 +1,200 @@
+
+Two deployment Strategies: Recreate (downtime) & Rollout (no downtime)
+
+
+# manual: rollout undo deployment dep-name (bad release)
+# A readinessProbe can be used to only allow traffic to be sent to a container after we determine it is ready.
+# A livenessProbe can be used to automatically restart containers that don’t appear to be healthy anymore.
+
+
+A Service is another Kubernetes resource that lets us provide a stable endpoint for our pods. It’s something that sits in front of the pods and takes care of receiving requests and delivering them to all the pods that are behind it.
+
+
+A NodePort that will open a port on the worker node to receive requests (similarly to what port-forward was doing)
+
+
+Service Types:
+1. cluster IP:  It’s also the default type, which means if we create a service without a type attribute Kubernetes will assume we mean ClusterIP.
+
+This type of service is used when we only need to give other applications that are running inside our cluster access to our pods
+
+2. NodePort
+
+You can think of it as an extension, so everything we can do with a ClusterIP, we can also do with a NodePort service. In addition to allowing applications that are running in our cluster to talk to each other, it will also allow us to expose our application to the outside world. It works by opening a port on all the worker nodes we have in our cluster, and then redirecting requests received on that port to the correct location, even if the pod we are trying to reach is physically running on a different node.
+
+
+
+3. LoadBalancer
+
+Load Balancer is an extension of a NodePort and ClusterIP. This means you have all the capabilities we discussed before, plus the automatic load balancer provisioning.
+if our Kubernetes cluster is running on AWS when we create a LoadBalancer service, it would automatically create an ELB (Elastic Load Balancer) that is correctly setup for us.
+
+That should work on pretty much every major cloud provider, and it is probably the easiest way to expose an application running in Kubernetes to the outside world.
+
+4. External Name to Services;
+
+5. SERVICE DISCOVERY - DNS / Env variables
+
+
+Ingress is another Kubernetes resource we can use to expose http(s) routes to external users.
+
+
+------------------------------------------------------
+
+kubectl apply -f \
+https://raw.githubusercontent.com/kubernetes/ingress-nginx/controller-v0.44.0/\
+deploy/static/provider/cloud/deploy.yaml
+
+
+kubectl get pods --all-namespaces \
+  -l app.kubernetes.io/name=ingress-nginx
+
+# NAMESPACE       NAME                     READY   STATUS
+# ingress-nginx   nginx-ingress-contr...   1/1     Running
+
+# Run the following command if services and deployments are already
+# running
+kubectl delete deployment,service --all
+
+kubectl apply -f hellok8s.yaml
+# service/hellok8s-svc created
+# deployment.apps/hellok8s created
+
+kubectl apply -f nginx.yaml
+# service/nginx-svc created
+# deployment.apps/nginx created
+
+kubectl get pods
+# NAME                        READY   STATUS    RESTARTS 
+# hellok8s-7f4c57d446-6c8b8   1/1     Running   0        
+# hellok8s-7f4c57d446-jkqbl   1/1     Running   0        
+# nginx-77c5c66899-dgkk2      1/1     Running   0        
+# nginx-77c5c66899-w9srw      1/1     Running   0        
+
+kubectl get service
+# NAME           TYPE        CLUSTER-IP       PORT(S)   
+# hellok8s-svc   ClusterIP   10.102.242.233   4567/TCP  
+# nginx-svc      ClusterIP   10.96.19.78      1234/TCP 
+
+kubectl apply -f ingress.yaml
+# ingress.extensions/hello-ingress created
+
+# Please enter the following command if you get an error while applying the ingress 
+# and then reapply the ingress using the above command
+# If not, you can skip this command and move ahead
+kubectl delete -A ValidatingWebhookConfiguration ingress-nginx-admission
+
+kubectl get ingress
+# NAME            HOSTS   ADDRESS     PORTS   AGE
+# hello-ingress   *       localhost   80      1m
+
+kubectl apply -f ingress-updated.yaml
+# ingress.extensions/hello-ingress configured
+
+# Inorder to run the ingress on the platform, you need to run the following port-forward command:
+# You don't require this command if you're working locally
+nohup kubectl port-forward --address 0.0.0.0 -n ingress-nginx service/ingress-nginx-controller 80:80 > /dev/null 2>&1 &
+
+# Now in another terminal session,  run
+curl http://localhost/hello
+# [v3] Hello, Kubernetes, from hellok8s-7f4c57d446-qth54!
+
+curl http://localhost
+# (nginx welcome page)
+
+
+- Add host in ingress.yml
+
+Ingress vs LoadBalancer
+
+First of all, an Ingress is not a service type. It will act just as a smart router sending traffic to services based on the rules we define, while a LoadBalancer will actually provision an entirely new load balancer for each service we have.
+
+In some cases, we can, but there are a few advantages in using an Ingress.
+
+For each LoadBalancer service we have, a new load balancer needs to be created. If we have 50 services running in our cluster, that means we will need 50 load balancers, which can get quite expensive. An Ingress allows us to achieve the same thing with a single load balancer!
+
+Another thing that’s very useful with ingresses is that we can set up our rules in a way that requests to different paths are sent to different services. For example, if our users access example.com/foo, we may want to send these requests to the foo service and requests to example.com/bar should go to the bar service. This is trivial to implement with an Ingress, but it would be a lot harder if foo and bar each had their own load balancer.
+
+Personally, a LoadBalancer is the easiest way to expose our services, while an Ingress is the most powerful.
+
+```
+kubectl delete deployment,service,ingress --all
+```
+
+ConfigMaps:
+To tell env is staging, dev or prod
+
+ like staging and production, we would need to have two copies of this manifest just to change the value of these environment variables. This is one of the problems with embedding these environment variables in the manifest.
+
+Luckily, Kubernetes has a high level resource called ConfigMap that serves this purpose. It’s basically a place for us to store key-value pairs that can be injected into our containers when they run. 
+```
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: hellok8s-config
+data:
+  MESSAGE: "It works with a ConfigMap!"
+```
+
+kubectl apply -f hellok8s-config.yaml
+
+We can load env variables from config file too instead of getting each env variable name from configMap
+
+One thing that we lose when we use envFrom to get all the values from a ConfigMap is the ability to specify the name of the environment variables that will be injected. It will always use the name defined in the ConfigMap. This is usually fine. But if we are injecting the configs from multiple different ConfigMaps, we can have conflicting variable names that would be overridden. To fix that, we can add a prefix to all the variables names imported from each ConfigMap:
+
+prefix: CONFIG_
+
+SECRETS
+
+Secrets are only distributed to the nodes that are running a pod that needs them.
+They are never written to physical storage.
+In the master node, they are stored encrypted.
+When we read a Secret, we will get the data base64 encoded. This is mostly so we can store binary values in a secret, not much of a security feature as base64 is easily decoded.
+
+
+A Job is a resource that (just like a Deployment) will create one or more pods for us. It will then watch these pods and make sure they do what they need to do and exit successfully. When all the pods finish, the Job is then marked as completed and its work is done.
+
+If we define OnFailure, the pod will be restarted if it fails, and if we define Never, an entirely new pod will be created (instead of the failed one being restarted in place). Unless there is a reason for you to not want your pod to be restarted in place, a good general rule is to always stick with OnFailure, as it will avoid the creation of unnecessary pods in case of failures.
+
+After the pod exits, it will not be deleted, so we can inspect its logs, but the status goes from Running to Completed. When we inspect the Job, we will also see that the number of desired completions (1) matches the number of successful runs, so this Job's life ends here.
+
+One thing that’s important to notice is that this Job will not be automatically deleted, even though it will never actually do anything again. Kubernetes 1.12 introduced the ttlSecondsAfterFinished property that, as the name implies, allows us to define a number of seconds after which the Job should be automatically deleted. It’s nice to have the Jobs around for a while after they finish, so we can debug issues and read the logs. But it’s a good idea to set this property to avoid having a bunch of finished Jobs hanging around forever.
+
+When we want to run a job more than once, we can set the completions field (which will be 1 by default) like this:
+
+
+kubectl delete job echo-job
+# job.batch "echo-job" deleted
+
+kubectl apply -f echo-job.yaml
+# job.batch/echo-job created
+
+# After a few seconds...
+kubectl get pods
+# NAME             READY   STATUS
+# echo-job-b68j5   0/1     Completed
+# echo-job-hcfnl   0/1     Completed
+# echo-job-pdm6l   0/1     Completed
+# echo-job-pjdcq   0/1     Completed
+
+
+Although I’m sure we can be creative and find a good reason to run the same task five times in a row, a more common use-case is to run multiple pods in parallel. For that we can set the parallelism property:
+
+Now instead of running pods sequentially, this Job will run three pods at a time. As soon as one of them finishes, it will start a new one until we reach our goal of five completions. A use-case for this could be processing messages from a queue in parallel.
+
+The goal of a Job is to ensure that a pod (or the number we defined in the completions property) finishes successfully. Because of this, when that doesn’t happen, it will try again. As we have seen before, depending on how we set the restartPolicy for this pod, it will either restart the pod in place (restartPolicy=OnFailure) or mark the pod as failed and start a new one (restartPolicy=Never).
+
+The Job will use an exponential back-off delay to retry running a pod; it has up to a limit of six times. We can override this limit by setting the backoffLimitproperty:
+
+---
+We can also set the activeDeadlineSeconds property to define for how long this Job is allowed to run. After this number of seconds, if all the pods still haven’t finished successfully, the Job fails. By default, a Job will not have a deadline.
+
+---
+Lastly, we can also make Jobs run on a schedule with another high level resource called CronJob.
+
+
+
+
+
+
+

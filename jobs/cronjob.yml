@@ -1,0 +1,19 @@
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: echo-cronjob
+spec:
+  ###########################3
+  failedJobsHistoryLimit: 1
+  successfulJobsHistoryLimit: 3
+  #######################################
+  schedule: "* * * * *" # Every minute (minute hour day(month) month day(week))
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          restartPolicy: OnFailure
+          containers:
+          - name: echo
+            image: busybox
+            command: ["echo", "Triggered by a CronJob"]

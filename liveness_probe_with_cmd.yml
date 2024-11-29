@@ -1,0 +1,36 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: hellok8s
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: hellok8s
+  template:
+    metadata:
+      labels:
+        app: hellok8s
+    spec:
+      containers:
+      - image: brianstorti/hellok8s:v2
+        name: hellok8s-container
+        resources:
+          limits:
+            memory: "128Mi"
+            cpu: "500m"
+        readinessProbe:
+          periodSeconds: 1
+          successThreshold: 5
+          httpGet:
+            path: /
+            port: 4567
+        livenessProbe:
+          exec:
+            command:
+              - check_health.sh
+
+# manual: rollout undo deployment dep-name (bad release)
+# A readinessProbe can be used to only allow traffic to be sent to a container after we determine it is ready.
+# A livenessProbe can be used to automatically restart containers that don’t appear to be healthy anymore.
+

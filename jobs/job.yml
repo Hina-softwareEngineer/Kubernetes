@@ -1,0 +1,19 @@
+# echo-job.yaml
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: echo-job
+spec:
+  backoffLimit: 10
+  completions: 5
+  parallelism: 3
+  template:
+    spec:
+      restartPolicy: OnFailure
+      containers:
+      - name: echo
+        image: busybox
+        command: ["echo", "Running in a job"]
+
+# This is a “one-shot” Job. It will start a container that echos a message and exits. As soon as this container finishes, it will be marked as “completed” and this Job is done.
+
