@@ -193,7 +193,126 @@ We can also set the activeDeadlineSeconds property to define for how long this J
 Lastly, we can also make Jobs run on a schedule with another high level resource called CronJob.
 
 
+namespaces
+- We can also use the --all-namespaces flag to see resources from all namespaces, and we can combine that with kubectl get all to see everything we have running in our cluster:
 
+```
+kubectl get pods -n hina-namespace
+kubectl get pods --all-namespaces
+kubectl get all --all-namespaces
+```
+
+There are two different ways to define the namespace to run a resource in. We can simply use the -n flag when we run kubectl apply, or we can define that in the resource’s manifest. Let’s use our nginx pod to see how that works.
+```
+...
+metadata:
+  name: nginx
+  namespace: my-namespace
+...
+```
+
+Accessing service’s DNS using namespace#
+```
+curl hellok8s-svc.default:4567
+# [v4] Hello, Kubernetes (from hellok8s)
+
+curl hellok8s-svc.my-namespace:4567
+# [v3] Hello, Kubernetes, from hellok8s!
+```
+
+Managing Resources:
+
+Defining request
+When we create a pod to run our application, we can define how much CPU and memory it will need. Kubernetes will then only schedule this pod on nodes that have enough capacity to fulfil these requests.
+
+Differences between memory and CPU limits
+There is a difference in what happens to a container when it reaches its limit for CPU and memory usage. CPU is a compressible resource, which means Kubernetes can just stop giving that specific container CPU time if a container tries to use more CPU than it should. The container will not be killed. It will just not have to keep running with the amount of CPU time it has available.
+
+With memory, it’s different. If a container tries to allocate more memory than it can, Kubernetes will kill the process. Then, depending on the restartPolicy that is defined for this pod, it can be restarted.
+
+Kubernetes allows us to define a LimitRange with default values that will be used for every container that we run in a namespace.
+
+We can use LimitRage to define default resources limits and requests for a namespace.
+
+KubeConfig
+
+```
+apiVersion: v1
+kind: Config
+current-context: docker-for-desktop
+
+clusters:
+- cluster:
+    insecure-skip-tls-verify: true
+    server: https://localhost:6443
+  name: docker-for-desktop-cluster
+
+users:
+- name: docker-for-desktop
+  user:
+    client-certificate-data: LS0tL...
+    client-key-data: LS0tL...
+
+contexts:
+- context:
+    cluster: docker-for-desktop-cluster
+    user: docker-for-desktop
+  name: docker-for-desktop
+```
+
+With AWS as one more cluster:
+
+```
+clusters:
+- cluster:
+    insecure-skip-tls-verify: true
+    server: https://localhost:6443
+  name: docker-for-desktop-cluster
+
+- cluster:
+    server: https://7150E27E.us-east-1.eks.amazonaws.com
+  name: production
+```
+
+Next, we have the users section where we define how we are going to authenticate against a cluster. In our example, we have only one user that is using a X509 certificate for authentication
+
+A context is the combination of a cluster and a user. In our example, we have a context called docker-for-desktop that is connecting to the docker-for-desktop-cluster cluster using the user docker-for-desktop.
+
+```
+kubectl config use-context production
+# Switched to context "production"
+```
+
+kubect get pods --context production
+
+Different Config file:
+kubectl --kubeconfig="path/to/config" get pods
+
+
+
+To Run Kubernetes Dashboard:
+kubectl create -f https://raw.githubusercontent.com/kubernetes/dashboard/v2.2.0/aio/deploy/recommended.yaml
+
+kubectl proxy
+# Starting to serve on 127.0.0.1:8001
+
+# To run it on the platform, run the following command
+kubectl proxy --address 0.0.0.0 --accept-hosts='.*'
+
+kubectl describe secret default-token
+
+# Name:         default-token-f9kl9
+# Namespace:    default
+# Labels:       <none>
+# Annotations:  kubernetes.io/service-account.name: default
+#               kubernetes.io/service-account.uid: 0bbbfb03
+# Type:  kubernetes.io/service-account-token
+# 
+# Data
+# ====
+# ca.crt:     1025 bytes
+# namespace:  7 bytes
+# token:      eyJhbGciOiJS...
 
 
 
