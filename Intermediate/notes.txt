@@ -109,6 +109,92 @@ Port exposes the Kubernetes service on the specified port within the cluster. Ot
 TargetPort is the port on which the service will send requests to, that your pod will be listening on. Your application in the container will need to be listening on this port also.
 NodePort exposes a service externally to the cluster by means of the target nodes IP address and the NodePort. NodePort is the default setting if the port field is not specified.
 
+Updating the db image
+kubectl set image \
+    -f go-demo-2-db.yml \
+    db=mongo:3.4 \
+    --record
+--record used to watch deployment steps
+
+
+The above edit command is not a good way to update the definition. It is impractical and undocumented. The kubectl set image command is more useful if we want to integrate Deployment updates with one of the CI/CD tools.
+
+
+The minReadySeconds defines the minimum number of seconds before Kubernetes starts considering the Pods healthy. We set the value of this field to 1 second. The default value is 0, meaning that the Pods will be considered available as soon as they are ready and, when specified, livenessProbe returns OK. If in doubt, omit this field and let its value stay 0… We have defined it mostly for demonstration purposes.
+
+ Please make sure that at least 60 seconds have passed since you executed the kubectl set image command. If you’re wondering why we are waiting, the answer is in the progressDeadlineSeconds field set in the go-demo-2-api Deployment definition. That’s how much the Deployment has to wait before it deduces that it cannot progress due to a failure to run a Pod.
+
+
+
+## Strategy
+The strategy can be either the RollingUpdate or the Recreate type. The latter will terminate all the existing Pods before an update. Recreate resembles the processes we used in the past when the typical strategy for deploying a new release was first to stop the existing one and then put a new one in its place. This approach inevitably leads to downtime. The only case when this strategy is useful is when applications are not designed for two releases to coexist. Unfortunately, that’s still more common than it should be. If you’re in doubt about whether your application is like that, ask yourself the following question. Would there be an adverse effect if two different versions of an application are running in parallel? If that’s the case, a Recreate strategy might be a good choice. Reminder: We cannot accomplish zero-downtime Deployments.
+
+### Recreate
+The Recreate strategy is much better suited to our single-replica database. We should have set up the native database replication (not the same as the Kubernetes ReplicaSet object)
+
+If we’re running the database as a single replica, we must have mounted a network drive volume. That allows us to avoid data loss when updating it or in case of a failure. Since most databases (MongoDB included) cannot have multiple instances writing to the same data files, terminating the old release before creating a new one is a good strategy when replication is absent.
+Finally, the strategy for deploying the database is set to recreate. As explained earlier, it is more suited for a single-replica database, even though we did not mount a volume that would preserve the data.
+
+### RollingUpdate
+
+The RollingUpdate strategy is the default type for a good reason. It allows us to deploy new releases without downtime. It creates a new ReplicaSet with zero replicas and, depending on other parameters, increases the replicas of the new one and decreases those from the old one. The process is finished when the replicas of the new ReplicaSet entirely replace those from the old one.
+
+When RollingUpdate is the strategy of choice, it can be fine-tuned with the maxSurge and maxUnavailable fields. The former defines the maximum number of Pods that can exceed the desired number (set using replicas). It can be set to an absolute number (e.g., 2) or a percentage (e.g., 35%). The total number of Pods will never exceed the desired number (set using replicas) and the maxSurge combined. The default value is 25%.
+
+The maxUnavailable field defines the maximum number of Pods that are not operational. If, for example, the number of replicas is set to 15 and this field is set to 4, the minimum number of Pods that would run at any given moment would be 11. Just as the maxSurge field, this one also defaults to 25%. If this field is not specified, there will always be at least 75% of the desired Pods.
+
+- kubectl set image -f go-demo-2-api.yml api=vfarcic/go-demo-2:2.0 --record
+There are a few ways we can observe what is happening during the update. One of those is through the kubectl rollout status command:
+
+kubectl rollout status -w -f go-demo-2-api.yml
+kubectl rollout history -f go-demo-2-api.yml
+
+
+## Rollback or Rolling forward
+Rolling back a release that introduced database changes is often not possible. Even when it is, rolling forward is usually a better option when we’re practicing continuous Deployment with high-frequency releases limited to a small scope of changes.
+
+Rolling back should be considered a last resort. Still, in some cases, that is a better option. In others, it might be the only option. Luckily, rolling back is reasonably straightforward with Kubernetes.
+
+
+
+Rollout: kubectl rollout undo -f go-demo-2-api.yml
+Rollout history: kubectl rollout history -f go-demo-2-api.yml
+
+kubectl rollout undo -f go-demo-2-api.yml --to-revision=2
+Assuming that we want to revert to the image vfarcic/go-demo-2:2.0, reviewing the change-causes listed in the history will tell us that we should roll back to revision 2. This can be accomplished through the --to-revision argument. 
+
+
+ the status command returns 1 if the deployment fails then we can use that information to decide what to do next. For those of us who don’t use Linux a lot, any exit code different than 0 is considered an error
+
+``` echo $? ```
+
+For example, we might be in a situation where Pods cannot be created. An easy to reproduce case would be an attempt to deploy an image with a tag that does not exist. If we expect that the Deployment would roll back after it failed, then we’ll be wrong. It will do no such thing, at least not without additional add-ons. That does not mean that we sit in front of the terminal, wait for timeouts, and check the rollout status before deciding whether to keep the new update or roll back. We should deploy new releases as part of our automated CDP pipeline.
+
+If we decide that the number of replicas changes with relatively low frequency or that Deployments are performed manually, the best way to scale is to write a new YAML file or, even better, modify the existing one. Assuming that we store YAML files in a code repository, by updating existing files we have a documented and reproducible definition of the objects running inside a cluster.
+
+Automated Sclaing:
+While scaling Deployments using YAML files (or other controllers) is an excellent way to keep documentation accurate, it rarely fits the dynamic nature of the clusters. We should aim for a system that will scale (and de-scale) Services automatically.
+
+When scaling is frequent and, hopefully, automated, we cannot expect to update YAML definitions and push them to Git. That would be too inefficient and would probably cause quite a few unwanted executions of delivery pipelines if they are triggered through repository WebHooks. After all, do we really want to push updated YAML files multiple times a day?
+
+Note: The number of replicas should not be part of the design. It is a fluctuating number that changes continuously (or at least often), depending on the traffic, memory and CPU utilization, and so on.
+
+kubectl scale deployment go-demo-2-api --replicas 8 --record
+
+we’ll use kubectl scale to change the number of replicas
+
+The annotations section allows us to provide additional information to the Ingress controller. 
+
+The Ingress API specification is concise and limited. That is done on purpose. The specification API defines only the fields that are mandatory for all Ingress controllers. All the additional information an Ingress controller needs is specified through annotations. That way, the community behind the controllers can progress at great speed while still providing basic general compatibility and standards.
+
+
+
+We specify the nginx.ingress.kubernetes.io/ssl-redirect: "false" annotation which tells the controller that we do not want to redirect all HTTP requests to HTTPS. We’re forced to do so since we do not have SSL certificates for the exercises that follow.
+
+The go-demo-2 Service we’re currently using is no longer properly configured for our Ingress setup. Using type: NodePort, it is configured to export port 8080 to all of the nodes. Since we’re expecting users to access the application through the Ingress controller on port 80, there’s probably no need to allow external access through port 8080 as well.
+
+We should switch to the ClusterIP type. This will allow direct access to the Service only within the cluster, therefore limiting all external communication through Ingress.
+
 
 
 
